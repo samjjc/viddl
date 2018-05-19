@@ -11,8 +11,17 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
+
+func SetLogOutput(w io.Writer) {
+	log.SetOutput(w)
+}
+
+func NewYoutube(debug bool) *Youtube {
+	return &Youtube{DebugMode: debug, DownloadPercent: make(chan int64, 100)}
+}
 
 type stream map[string]string
 
@@ -21,6 +30,7 @@ type Youtube struct {
 	StreamList        []stream
 	VideoID           string
 	videoInfo         string
+	videoName         string
 	DownloadPercent   chan int64
 	contentLength     float64
 	totalWrittenBytes float64
@@ -32,6 +42,7 @@ func (y *Youtube) Write(p []byte) (n int, err error) {
 	n = len(p)
 	y.totalWrittenBytes = y.totalWrittenBytes + float64(n)
 	currentPercent := ((y.totalWrittenBytes / y.contentLength) * 100)
+	y.log(fmt.Sprintf(y.videoName[0:6], strconv.FormatFloat(currentPercent, 'f', 6, 64)))
 	if (y.downloadLevel <= currentPercent) && (y.downloadLevel < 100) {
 		y.downloadLevel++
 		y.DownloadPercent <- int64(y.downloadLevel)
@@ -60,12 +71,22 @@ func (y *Youtube) DecodeURL(url string) error {
 
 func (y *Youtube) StartDownload(destFile string) error {
 	//download highest resolution on [0]
-	targetStream := y.StreamList[0]
+	targetStream := y.StreamList[len(y.StreamList)-1]
+	y.videoName = targetStream["title"]
+	y.log(fmt.Sprintln("STREAMS: ", targetStream["title"]))
+	y.log(fmt.Sprintln("STREAMS: ", len(y.StreamList)))
 	url := targetStream["url"] + "&signature=" + targetStream["sig"]
 	y.log(fmt.Sprintln("Download url=", url))
 
 	y.log(fmt.Sprintln("Download to file=", destFile))
 	err := y.videoDLWorker(destFile, url)
+	return err
+}
+
+func (y *Youtube) DownloadPlaylistVideo(url string, destFile string, c chan string) error {
+	err := y.DecodeURL(url)
+	err = y.StartDownload(destFile)
+	c <- "done"
 	return err
 }
 
@@ -176,7 +197,7 @@ func (y *Youtube) parseVideoInfo() error {
 	return nil
 }
 
-func (y *Youtube) videoDLWorker(destFile string, target string) error {
+func (y *Youtube) videoDLWorker(destDir string, target string) error {
 	resp, err := http.Get(target)
 	if err != nil {
 		log.Printf("Http.Get\nerror: %s\ntarget: %s\n", err, target)
@@ -189,11 +210,11 @@ func (y *Youtube) videoDLWorker(destFile string, target string) error {
 		log.Printf("reading answer: non 200[code=%v] status code received: '%v'", resp.StatusCode, err)
 		return errors.New("non 200 status code received")
 	}
-	err = os.MkdirAll(filepath.Dir(destFile), 666)
+	err = os.MkdirAll(filepath.Dir(destDir), 666)
 	if err != nil {
 		return err
 	}
-	out, err := os.Create(destFile)
+	out, err := os.Create(destDir + "/" + y.videoName + ".mp4")
 	if err != nil {
 		return err
 	}
