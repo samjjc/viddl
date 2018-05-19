@@ -3,10 +3,13 @@ package youtube
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -22,6 +25,18 @@ type Youtube struct {
 	contentLength     float64
 	totalWrittenBytes float64
 	downloadLevel     float64
+}
+
+//Implement Writer interface
+func (y *Youtube) Write(p []byte) (n int, err error) {
+	n = len(p)
+	y.totalWrittenBytes = y.totalWrittenBytes + float64(n)
+	currentPercent := ((y.totalWrittenBytes / y.contentLength) * 100)
+	if (y.downloadLevel <= currentPercent) && (y.downloadLevel < 100) {
+		y.downloadLevel++
+		y.DownloadPercent <- int64(y.downloadLevel)
+	}
+	return
 }
 
 func (y *Youtube) DecodeURL(url string) error {
@@ -40,6 +55,62 @@ func (y *Youtube) DecodeURL(url string) error {
 		return fmt.Errorf("parse video info failed, err=%s", err)
 	}
 
+	return nil
+}
+
+func (y *Youtube) StartDownload(destFile string) error {
+	//download highest resolution on [0]
+	targetStream := y.StreamList[0]
+	url := targetStream["url"] + "&signature=" + targetStream["sig"]
+	y.log(fmt.Sprintln("Download url=", url))
+
+	y.log(fmt.Sprintln("Download to file=", destFile))
+	err := y.videoDLWorker(destFile, url)
+	return err
+}
+
+func (y *Youtube) findVideoID(url string) error {
+	videoID := url
+	if strings.Contains(videoID, "youtu") || strings.ContainsAny(videoID, "\"?&/<%=") {
+		reList := []*regexp.Regexp{
+			regexp.MustCompile(`(?:v|embed|watch\?v)(?:=|/)([^"&?/=%]{11})`),
+			regexp.MustCompile(`(?:=|/)([^"&?/=%]{11})`),
+			regexp.MustCompile(`([^"&?/=%]{11})`),
+		}
+		for _, re := range reList {
+			if isMatch := re.MatchString(videoID); isMatch {
+				subs := re.FindStringSubmatch(videoID)
+				videoID = subs[1]
+			}
+		}
+	}
+	log.Printf("Found video id: '%s'", videoID)
+	y.VideoID = videoID
+	if strings.ContainsAny(videoID, "?&/<%=") {
+		return errors.New("invalid characters in video id")
+	}
+	if len(videoID) < 10 {
+		return errors.New("the video id must be at least 10 characters long")
+	}
+	return nil
+}
+
+func (y *Youtube) getVideoInfo() error {
+	url := "http://youtube.com/get_video_info?video_id=" + y.VideoID
+	y.log(fmt.Sprintf("url: %s", url))
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return err
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	y.videoInfo = string(body)
 	return nil
 }
 
@@ -105,47 +176,32 @@ func (y *Youtube) parseVideoInfo() error {
 	return nil
 }
 
-func (y *Youtube) getVideoInfo() error {
-	url := "http://youtube.com/get_video_info?video_id=" + y.VideoID
-	y.log(fmt.Sprintf("url: %s", url))
-	resp, err := http.Get(url)
+func (y *Youtube) videoDLWorker(destFile string, target string) error {
+	resp, err := http.Get(target)
 	if err != nil {
+		log.Printf("Http.Get\nerror: %s\ntarget: %s\n", err, target)
 		return err
 	}
 	defer resp.Body.Close()
+	y.contentLength = float64(resp.ContentLength)
+
 	if resp.StatusCode != 200 {
-		return err
+		log.Printf("reading answer: non 200[code=%v] status code received: '%v'", resp.StatusCode, err)
+		return errors.New("non 200 status code received")
 	}
-	body, err := ioutil.ReadAll(resp.Body)
+	err = os.MkdirAll(filepath.Dir(destFile), 666)
 	if err != nil {
 		return err
 	}
-	y.videoInfo = string(body)
-	return nil
-}
-
-func (y *Youtube) findVideoID(url string) error {
-	videoID := url
-	if strings.Contains(videoID, "youtu") || strings.ContainsAny(videoID, "\"?&/<%=") {
-		reList := []*regexp.Regexp{
-			regexp.MustCompile(`(?:v|embed|watch\?v)(?:=|/)([^"&?/=%]{11})`),
-			regexp.MustCompile(`(?:=|/)([^"&?/=%]{11})`),
-			regexp.MustCompile(`([^"&?/=%]{11})`),
-		}
-		for _, re := range reList {
-			if isMatch := re.MatchString(videoID); isMatch {
-				subs := re.FindStringSubmatch(videoID)
-				videoID = subs[1]
-			}
-		}
+	out, err := os.Create(destFile)
+	if err != nil {
+		return err
 	}
-	log.Printf("Found video id: '%s'", videoID)
-	y.VideoID = videoID
-	if strings.ContainsAny(videoID, "?&/<%=") {
-		return errors.New("invalid characters in video id")
-	}
-	if len(videoID) < 10 {
-		return errors.New("the video id must be at least 10 characters long")
+	mw := io.MultiWriter(out, y)
+	_, err = io.Copy(mw, resp.Body)
+	if err != nil {
+		log.Println("download video err=", err)
+		return err
 	}
 	return nil
 }
