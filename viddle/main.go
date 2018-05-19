@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	. "github.com/samjjc/viddle"
+	. "github.com/samjjc/viddl"
 )
 
 func main() {
