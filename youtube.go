@@ -46,12 +46,14 @@ func (y *Youtube) Write(p []byte) (n int, err error) {
 	n = len(p)
 	y.totalWrittenBytes = y.totalWrittenBytes + float64(n)
 	currentPercent := ((y.totalWrittenBytes / y.contentLength) * 100)
-	// y.log(fmt.Sprintf(y.videoName[0:6], strconv.FormatFloat(currentPercent, 'f', 6, 64)))
+	// fmt.Println(fmt.Sprintf(y.videoName[0:6], strconv.FormatFloat(currentPercent, 'f', 6, 64)))
 	if (y.downloadLevel <= currentPercent) && (y.downloadLevel < 100) {
 		y.downloadLevel++
+		// y.bar.Increment()
 		y.DownloadPercent <- int64(y.downloadLevel)
 	}
 	y.bar.IncrBy(int(currentPercent) - int(y.bar.Current()))
+	// y.bar.IncrBy(int(n / int(y.contentLength)))
 	return
 }
 
@@ -90,11 +92,10 @@ func (y *Youtube) StartDownload(destFile string) error {
 
 func (y *Youtube) DownloadPlaylistVideo(url string, destFile string, c chan string, bar *mpb.Bar, wg *sync.WaitGroup) error {
 	y.wg = wg
+	defer wg.Done()
 	y.bar = bar
 	err := y.DecodeURL(url)
 	err = y.StartDownload(destFile)
-	c <- "done"
-	wg.Done()
 	return err
 }
 
@@ -213,6 +214,7 @@ func (y *Youtube) videoDLWorker(destDir string, target string) error {
 	}
 	defer resp.Body.Close()
 	y.contentLength = float64(resp.ContentLength)
+	// y.bar.SetTotal(int64(y.contentLength), true)
 
 	if resp.StatusCode != 200 {
 		log.Printf("reading answer: non 200[code=%v] status code received: '%v'", resp.StatusCode, err)

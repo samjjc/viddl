@@ -3,13 +3,11 @@ package youtube
 import (
 	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sync"
-	"time"
 
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
@@ -23,8 +21,9 @@ func DownloadPlaylist() {
 	c := make(chan string)
 	var wg sync.WaitGroup
 	p := mpb.New(mpb.WithWaitGroup(&wg))
-
+	i := 1
 	resp, _ := http.Get("https://www.youtube.com/playlist?list=PLDwdWAXmoUpii8stEkuKPguv4SHhWcHQe")
+	// resp, _ := http.Get("https://www.youtube.com/playlist?list=PLDwdWAXmoUpjjkvj6NA5DwX0v5Zg8BpcN")
 	z := html.NewTokenizer(resp.Body)
 	end := false
 	for {
@@ -41,14 +40,16 @@ func DownloadPlaylist() {
 			if re.MatchString(t.String()) {
 				url := re.FindStringSubmatch(t.String())[0]
 				if !set[url] {
+					name := fmt.Sprintf("Bar#%d:", i)
+					i++
 					set[url] = true
 					fmt.Println(url)
 					y := NewYoutube(false)
-					wg.Add(1)
-					bar := p.AddBar(int64(100),
+					// wg.Add(1)
+					bar := p.AddBar(100,
 						mpb.PrependDecorators(
 							// Display our static name with one space on the right
-							decor.StaticName("name", len("name")+1, decor.DidentRight),
+							decor.StaticName(name, len(name)+1, decor.DidentRight),
 							// DwidthSync bit enables same column width synchronization
 							decor.Percentage(0, decor.DwidthSync),
 						),
@@ -57,14 +58,14 @@ func DownloadPlaylist() {
 							decor.OnComplete(decor.ETA(3, 0), "done!", 0, 0),
 						),
 					)
-					go func() {
-						defer wg.Done()
-						max := 100 * time.Millisecond
-						for i := 0; i < 100; i++ {
-							time.Sleep(time.Duration(rand.Intn(10)+1) * max / 10)
-							bar.Increment()
-						}
-					}()
+					// go func() {
+					// 	defer wg.Done()
+					// 	max := 100 * time.Millisecond
+					// 	for i := 0; i < 100; i++ {
+					// 		time.Sleep(time.Duration(rand.Intn(10)+1) * max / 10)
+					// 		bar.Increment()
+					// 	}
+					// }()
 					go y.DownloadPlaylistVideo(url, currentDir, c, bar, &wg)
 				} else {
 					fmt.Println(url, "already found")
@@ -80,11 +81,14 @@ func DownloadPlaylist() {
 
 	wg.Add(len(set))
 
-	fmt.Println(len(set), "VIDEOS IN PLAYLIST")
-	for i := 0; i < len(set); i++ {
-		select {
-		case s := <-c:
-			fmt.Println(s)
-		}
-	}
+	// fmt.Println(len(set), "VIDEOS IN PLAYLIST")
+	// for i := 0; i < len(set); i++ {
+	// 	select {
+	// 	case <-c:
+	// 		// fmt.Println(s)
+	// 	}
+	// }
+	wg.Wait()
+
+	// time.Sleep(time.Second)
 }
