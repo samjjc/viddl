@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	. "github.com/samjjc/viddl"
 )
 
@@ -15,4 +17,5 @@ func main() {
 	// y.DecodeURL(arg)
 	// y.StartDownload(currentDir)
 	DownloadPlaylist()
+	time.Sleep(time.Millisecond * 200)
 }
