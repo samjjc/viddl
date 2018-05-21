@@ -1,4 +1,4 @@
-package youtube
+package viddl
 
 import (
 	"errors"
@@ -21,8 +21,8 @@ func SetLogOutput(w io.Writer) {
 	log.SetOutput(w)
 }
 
-func NewYoutube(debug bool) *Youtube {
-	return &Youtube{DebugMode: debug, DownloadPercent: make(chan int64, 100)}
+func NewYoutube(debug bool, bar *mpb.Bar) *Youtube {
+	return &Youtube{DebugMode: debug, DownloadPercent: make(chan int64, 100), bar: bar}
 }
 
 type stream map[string]string
@@ -37,7 +37,6 @@ type Youtube struct {
 	contentLength     float64
 	totalWrittenBytes float64
 	downloadLevel     float64
-	wg                *sync.WaitGroup
 	bar               *mpb.Bar
 }
 
@@ -55,6 +54,18 @@ func (y *Youtube) Write(p []byte) (n int, err error) {
 	y.bar.IncrBy(int(currentPercent) - int(y.bar.Current()))
 	// y.bar.IncrBy(int(n / int(y.contentLength)))
 	return
+}
+
+func (y *Youtube) DownloadSingleVideo(currentDir string, url string) {
+	y.DecodeURL(url)
+	y.StartDownload(currentDir)
+}
+
+func (y *Youtube) DownloadPlaylistVideo(url string, destFile string, wg *sync.WaitGroup) error {
+	defer wg.Done()
+	err := y.DecodeURL(url)
+	err = y.StartDownload(destFile)
+	return err
 }
 
 func (y *Youtube) DecodeURL(url string) error {
@@ -79,23 +90,11 @@ func (y *Youtube) DecodeURL(url string) error {
 func (y *Youtube) StartDownload(destFile string) error {
 	//download highest resolution on [0]
 	targetStream := y.StreamList[len(y.StreamList)-1]
-	y.videoName = targetStream["title"]
-	y.log(fmt.Sprintln("STREAMS: ", targetStream["title"]))
-	y.log(fmt.Sprintln("STREAMS: ", len(y.StreamList)))
 	url := targetStream["url"] + "&signature=" + targetStream["sig"]
 	y.log(fmt.Sprintln("Download url=", url))
 
 	y.log(fmt.Sprintln("Download to file=", destFile))
 	err := y.videoDLWorker(destFile, url)
-	return err
-}
-
-func (y *Youtube) DownloadPlaylistVideo(url string, destFile string, c chan string, bar *mpb.Bar, wg *sync.WaitGroup) error {
-	y.wg = wg
-	defer wg.Done()
-	y.bar = bar
-	err := y.DecodeURL(url)
-	err = y.StartDownload(destFile)
 	return err
 }
 

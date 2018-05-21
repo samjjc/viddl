@@ -1,11 +1,9 @@
-package youtube
+package viddl
 
 import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sync"
 
@@ -14,15 +12,14 @@ import (
 	"golang.org/x/net/html"
 )
 
-func DownloadPlaylist() {
-	currentDir, _ := filepath.Abs(filepath.Dir(os.Args[0]))
+func DownloadPlaylist(currentDir string, url string) {
 	log.Println("download to dir=", currentDir)
 	set := make(map[string]bool)
-	c := make(chan string)
 	var wg sync.WaitGroup
 	p := mpb.New(mpb.WithWaitGroup(&wg))
 	i := 1
-	resp, _ := http.Get("https://www.youtube.com/playlist?list=PLDwdWAXmoUpii8stEkuKPguv4SHhWcHQe")
+	resp, _ := http.Get(url)
+	// resp, _ := http.Get("https://www.youtube.com/playlist?list=PLDwdWAXmoUpii8stEkuKPguv4SHhWcHQe")
 	// resp, _ := http.Get("https://www.youtube.com/playlist?list=PLDwdWAXmoUpjjkvj6NA5DwX0v5Zg8BpcN")
 	z := html.NewTokenizer(resp.Body)
 	end := false
@@ -44,8 +41,6 @@ func DownloadPlaylist() {
 					i++
 					set[url] = true
 					fmt.Println(url)
-					y := NewYoutube(false)
-					// wg.Add(1)
 					bar := p.AddBar(100,
 						mpb.PrependDecorators(
 							// Display our static name with one space on the right
@@ -58,15 +53,9 @@ func DownloadPlaylist() {
 							decor.OnComplete(decor.ETA(3, 0), "done!", 0, 0),
 						),
 					)
-					// go func() {
-					// 	defer wg.Done()
-					// 	max := 100 * time.Millisecond
-					// 	for i := 0; i < 100; i++ {
-					// 		time.Sleep(time.Duration(rand.Intn(10)+1) * max / 10)
-					// 		bar.Increment()
-					// 	}
-					// }()
-					go y.DownloadPlaylistVideo(url, currentDir, c, bar, &wg)
+					y := NewYoutube(false, bar)
+					wg.Add(1)
+					go y.DownloadPlaylistVideo(url, currentDir, &wg)
 				} else {
 					fmt.Println(url, "already found")
 				}
@@ -78,17 +67,5 @@ func DownloadPlaylist() {
 			break
 		}
 	}
-
-	wg.Add(len(set))
-
-	// fmt.Println(len(set), "VIDEOS IN PLAYLIST")
-	// for i := 0; i < len(set); i++ {
-	// 	select {
-	// 	case <-c:
-	// 		// fmt.Println(s)
-	// 	}
-	// }
 	wg.Wait()
-
-	// time.Sleep(time.Second)
 }
